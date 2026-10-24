@@ -1,0 +1,12 @@
+{
+  "frames": [
+    {"id": 291, "name": "VehicleSpeed", "dlc": 8, "signals": [
+      {"name": "speed_kph", "start_bit": 0, "length": 16, "factor": 0.01},
+      {"name": "valid", "start_bit": 16, "length": 1}
+    ]},
+    {"id": 292, "name": "PowertrainState", "dlc": 8, "signals": [
+      {"name": "state", "start_bit": 0, "length": 3},
+      {"name": "torque_limit", "start_bit": 8, "length": 16, "factor": 0.1}
+    ]}
+  ]
+}
