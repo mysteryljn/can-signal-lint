@@ -3,8 +3,27 @@ import argparse
 import json
 from pathlib import Path
 
+VALID_DLC_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
+
 def _bits(start,length):
     return set(range(start,start+length))
+
+def _signal_bits(start, length, order):
+    """Return payload bit positions occupied by a signal.
+
+    Little-endian (Intel) signals use consecutive bit positions.  In the
+    Motorola/DBC representation a signal starts at its most-significant bit;
+    after bit 0 the next position is the most-significant bit of the next
+    byte (for example, 7, 6, ..., 0, 15, 14, ...).
+    """
+    if order != "big":
+        return list(range(start, start + length))
+    bits = []
+    bit = start
+    for _ in range(length):
+        bits.append(bit)
+        bit = bit + 15 if bit % 8 == 0 else bit - 1
+    return bits
 
 def lint(definition):
     errors=[]
@@ -17,8 +36,8 @@ def lint(definition):
         elif fid in ids:
             errors.append(f"{prefix}: duplicate CAN id {fid} (also {ids[fid]})")
         else: ids[fid]=name
-        if not isinstance(dlc,int) or not 0<=dlc<=64:
-            errors.append(f"{prefix}: DLC must be an integer from 0 to 64"); dlc=0
+        if type(dlc) is not int or dlc not in VALID_DLC_LENGTHS:
+            errors.append(f"{prefix}: DLC must be a valid CAN payload length (0-8, 12, 16, 20, 24, 32, 48, or 64 bytes)"); dlc=0
         used={}; names=set()
         for sindex,signal in enumerate(frame.get("signals",[])):
             sp=f"{prefix}.signals[{sindex}]"; sname=signal.get("name"); start=signal.get("start_bit"); length=signal.get("length"); order=signal.get("byte_order","little")
@@ -28,9 +47,10 @@ def lint(definition):
             if order not in ("little","big"): errors.append(f"{sp}: byte_order must be little or big")
             if not isinstance(start,int) or not isinstance(length,int) or length<=0:
                 errors.append(f"{sp}: start_bit and positive length are required"); continue
-            if start<0 or start+length>dlc*8:
+            signal_bits = _signal_bits(start, length, order)
+            if start<0 or any(bit < 0 or bit >= dlc*8 for bit in signal_bits):
                 errors.append(f"{sp}: signal {sname} exceeds {dlc}-byte payload"); continue
-            for bit in _bits(start,length):
+            for bit in signal_bits:
                 if bit in used: errors.append(f"{sp}: signal {sname} overlaps {used[bit]} at bit {bit}")
                 else: used[bit]=sname
             factor=signal.get("factor",1)
