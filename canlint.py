@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import math
 from pathlib import Path
 
 VALID_DLC_LENGTHS = tuple(range(9)) + (12, 16, 20, 24, 32, 48, 64)
@@ -39,7 +40,9 @@ def lint(definition):
             errors.append(f"{prefix}: frame must be an object")
             continue
         fid=frame.get("id"); name=frame.get("name","<unnamed>"); dlc=frame.get("dlc")
-        if not isinstance(fid,int) or not 0<=fid<=0x1FFFFFFF:
+        # ``bool`` is a subclass of ``int`` in Python.  Accepting it here
+        # would silently turn JSON true/false into CAN IDs 1/0.
+        if type(fid) is not int or not 0<=fid<=0x1FFFFFFF:
             errors.append(f"{prefix}: invalid CAN id")
         elif fid in ids:
             errors.append(f"{prefix}: duplicate CAN id {fid} (also {ids[fid]})")
@@ -61,7 +64,9 @@ def lint(definition):
             elif sname in names: errors.append(f"{sp}: duplicate signal name {sname}")
             names.add(sname)
             if order not in ("little","big"): errors.append(f"{sp}: byte_order must be little or big")
-            if not isinstance(start,int) or not isinstance(length,int) or length<=0:
+            # Bit positions and lengths must be JSON numbers, not booleans;
+            # Python otherwise treats True/False as 1/0.
+            if type(start) is not int or type(length) is not int or length<=0:
                 errors.append(f"{sp}: start_bit and positive length are required"); continue
             # A signal cannot occupy more bits than the frame payload.  Check
             # this before expanding the bit list so a malformed definition
@@ -75,7 +80,17 @@ def lint(definition):
                 if bit in used: errors.append(f"{sp}: signal {sname} overlaps {used[bit]} at bit {bit}")
                 else: used[bit]=sname
             factor=signal.get("factor",1)
-            if not isinstance(factor,(int,float)) or factor==0: errors.append(f"{sp}: factor must be a non-zero number")
+            # Python's bool is an int subclass, and json.loads accepts the
+            # non-standard NaN/Infinity constants by default.  Neither is a
+            # meaningful physical scaling factor and allowing them to pass
+            # can poison generated decoders or calibration calculations.
+            invalid_factor = (
+                isinstance(factor, bool)
+                or not isinstance(factor, (int, float))
+                or (isinstance(factor, float) and not math.isfinite(factor))
+                or factor == 0
+            )
+            if invalid_factor: errors.append(f"{sp}: factor must be a finite non-zero number")
     return errors
 
 def main(argv=None):

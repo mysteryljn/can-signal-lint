@@ -52,4 +52,33 @@ class CanLintTests(unittest.TestCase):
             {"name": "malicious", "start_bit": 0, "length": 10**9}
         ]}]})
         self.assertTrue(any("exceeds 8-byte payload" in error for error in errors))
+
+    def test_factor_must_be_finite_and_not_boolean(self):
+        # bool is an int subclass in Python, while json.loads accepts the
+        # non-standard NaN/Infinity constants.  All three would otherwise be
+        # accepted as scaling factors and leak invalid values downstream.
+        for factor in (True, False, float("nan"), float("inf"), float("-inf")):
+            errors = lint({"frames": [{"id": 1, "dlc": 1, "signals": [
+                {"name": "scaled", "start_bit": 0, "length": 1, "factor": factor}
+            ]}]})
+            self.assertTrue(any("finite non-zero number" in error for error in errors))
+
+        self.assertEqual(lint({"frames": [{"id": 1, "dlc": 1, "signals": [
+            {"name": "scaled", "start_bit": 0, "length": 1, "factor": 0.5}
+        ]}]}), [])
+
+    def test_boolean_ids_and_bit_coordinates_are_rejected(self):
+        # bool is an int subclass in Python.  JSON true/false must not turn
+        # into CAN IDs or one-bit signal coordinates by accident.
+        errors = lint({"frames": [{
+            "id": True,
+            "dlc": 8,
+            "signals": [{
+                "name": "bad",
+                "start_bit": False,
+                "length": True,
+            }],
+        }]})
+        self.assertTrue(any("invalid CAN id" in error for error in errors))
+        self.assertTrue(any("start_bit and positive length are required" in error for error in errors))
 if __name__=="__main__": unittest.main()
