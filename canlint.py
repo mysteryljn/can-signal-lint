@@ -60,9 +60,16 @@ def lint(definition):
                 errors.append(f"{sp}: signal must be an object")
                 continue
             sname=signal.get("name"); start=signal.get("start_bit"); length=signal.get("length"); order=signal.get("byte_order","little")
-            if not isinstance(sname,str) or not sname.strip(): errors.append(f"{sp}: signal name is required")
-            elif sname in names: errors.append(f"{sp}: duplicate signal name {sname}")
-            names.add(sname)
+            # Only valid string names can participate in the duplicate-name
+            # set.  A malformed JSON name such as [] or {} is unhashable;
+            # adding it directly would crash the linter instead of reporting
+            # the invalid definition.
+            if not isinstance(sname,str) or not sname.strip():
+                errors.append(f"{sp}: signal name is required")
+            elif sname in names:
+                errors.append(f"{sp}: duplicate signal name {sname}")
+            else:
+                names.add(sname)
             if order not in ("little","big"): errors.append(f"{sp}: byte_order must be little or big")
             # Bit positions and lengths must be JSON numbers, not booleans;
             # Python otherwise treats True/False as 1/0.
@@ -96,7 +103,11 @@ def lint(definition):
 def main(argv=None):
     parser=argparse.ArgumentParser(description="Lint a CAN network JSON definition"); parser.add_argument("definition",type=Path); args=parser.parse_args(argv)
     try: errors=lint(json.loads(args.definition.read_text(encoding="utf-8")))
-    except (OSError,json.JSONDecodeError) as exc: print(f"error: {exc}"); return 2
+    # Invalid UTF-8 is a malformed input file too.  ``Path.read_text`` raises
+    # UnicodeDecodeError before ``json.loads`` gets a chance to report it;
+    # leave the CLI with its documented error exit code instead of leaking a
+    # traceback into CI logs.
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc: print(f"error: {exc}"); return 2
     if errors: print("\n".join(f"ERROR {e}" for e in errors)); return 1
     print("OK: CAN definition passed"); return 0
 

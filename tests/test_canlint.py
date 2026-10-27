@@ -1,6 +1,8 @@
 import json
+import tempfile
 import unittest
-from canlint import lint
+from pathlib import Path
+from canlint import lint, main
 
 class CanLintTests(unittest.TestCase):
     def test_valid_definition(self):
@@ -81,4 +83,21 @@ class CanLintTests(unittest.TestCase):
         }]})
         self.assertTrue(any("invalid CAN id" in error for error in errors))
         self.assertTrue(any("start_bit and positive length are required" in error for error in errors))
+
+    def test_unhashable_signal_names_are_reported_instead_of_crashing(self):
+        # A malformed JSON name can be an array or object.  It must produce a
+        # normal validation error rather than raising TypeError from set.add.
+        for name in ([], {}):
+            errors = lint({"frames": [{"id": 1, "dlc": 1, "signals": [
+                {"name": name, "start_bit": 0, "length": 1}
+            ]}]})
+            self.assertTrue(any("signal name is required" in error for error in errors))
+
+    def test_cli_reports_invalid_utf8_without_traceback(self):
+        # Definition files are read as UTF-8.  A corrupt byte must produce
+        # the normal input-error status rather than an uncaught decode error.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid.json"
+            path.write_bytes(b"{\xff")
+            self.assertEqual(main([str(path)]), 2)
 if __name__=="__main__": unittest.main()
