@@ -33,6 +33,11 @@ def lint(definition):
     frames=definition.get("frames",[])
     if not isinstance(frames, list):
         return ["frames: must be a list"]
+    # An empty network is not a meaningful lint target.  Treating it as a
+    # clean definition makes a truncated/generated-empty configuration pass
+    # CI while providing no CAN frame coverage at all.
+    if not frames:
+        return ["frames: at least one frame is required"]
     ids={}
     for index,frame in enumerate(frames):
         prefix=f"frames[{index}]"
@@ -107,7 +112,11 @@ def main(argv=None):
     # UnicodeDecodeError before ``json.loads`` gets a chance to report it;
     # leave the CLI with its documented error exit code instead of leaking a
     # traceback into CI logs.
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc: print(f"error: {exc}"); return 2
+    # Python's JSON decoder protects itself with a recursion limit.  A deeply
+    # nested untrusted definition can therefore raise ``RecursionError``
+    # before linting starts; keep that malformed input on the normal CLI
+    # error path instead of leaking a traceback into CI.
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc: print(f"error: {exc}"); return 2
     if errors: print("\n".join(f"ERROR {e}" for e in errors)); return 1
     print("OK: CAN definition passed"); return 0
 

@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from canlint import lint, main
 
@@ -46,6 +47,13 @@ class CanLintTests(unittest.TestCase):
         self.assertTrue(any("signals: must be a list" in error for error in errors))
         errors = lint({"frames": [{"id": 1, "dlc": 8, "signals": [None]}]})
         self.assertTrue(any("signal must be an object" in error for error in errors))
+
+    def test_empty_network_is_rejected_instead_of_passing_vacuously(self):
+        # An empty/truncated network definition must not report a clean lint
+        # result, because it contains no frame coverage to validate.
+        for definition in ({}, {"frames": []}):
+            errors = lint(definition)
+            self.assertIn("frames: at least one frame is required", errors)
 
     def test_oversized_signal_length_is_rejected_before_bit_expansion(self):
         # A malformed length must not make the linter iterate once per bit
@@ -100,4 +108,18 @@ class CanLintTests(unittest.TestCase):
             path = Path(directory) / "invalid.json"
             path.write_bytes(b"{\xff")
             self.assertEqual(main([str(path)]), 2)
+
+    def test_cli_reports_deeply_nested_json_without_traceback(self):
+        # ``json.loads`` raises RecursionError for a maliciously deep JSON
+        # structure before the definition validator can run.  The command
+        # line tool must report a controlled input error instead of crashing.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "deep.json"
+            path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+            # The decoder's maximum nesting depth varies by Python version.
+            # A successfully parsed array must still fail schema validation.
+            self.assertIn(main([str(path)]), (1, 2))
+            with patch("canlint.json.loads", side_effect=RecursionError("deep JSON")):
+                self.assertEqual(main([str(path)]), 2)
+
 if __name__=="__main__": unittest.main()
